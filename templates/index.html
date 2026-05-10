@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ozon Promo Bot</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #f4f7f6; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1, h2 { color: #005bff; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], input[type="number"], select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+        button { background: #005bff; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-size: 16px; transition: background 0.3s; }
+        button:hover { background: #0041b3; }
+        .btn-rotate { background: #ff4500; margin-top: 10px; }
+        .btn-rotate:hover { background: #cc3700; }
+        .status-box { background: #eef2ff; padding: 15px; border-radius: 8px; margin-top: 20px; }
+        .alert { padding: 10px; border-radius: 6px; margin-bottom: 15px; display: none; }
+        .alert-success { background: #d4edda; color: #155724; }
+        .alert-danger { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Ozon Promo Bot</h1>
+
+    <div id="alert-box" class="alert"></div>
+
+    <form method="POST" id="config-form">
+        <div class="form-group">
+            <label for="client_id">Client-Id</label>
+            <input type="text" id="client_id" name="client_id" value="{{ config.client_id }}" required>
+        </div>
+        <div class="form-group">
+            <label for="api_key">Api-Key</label>
+            <input type="text" id="api_key" name="api_key" value="{{ config.api_key }}" required>
+            <button type="button" id="load-actions-btn" style="margin-top: 10px; background: #28a745;">Загрузить акции</button>
+        </div>
+
+        <div class="form-group">
+            <label for="action_id">ID Акции (или выберите из списка)</label>
+            <input type="text" id="action_id" name="action_id" value="{{ config.action_id }}" required>
+            <select id="action_select" style="display: none; margin-top: 5px;">
+                <option value="">-- Выберите акцию --</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="count">Количество товаров для ротации</label>
+            <input type="number" id="count" name="count" value="{{ config.count }}" min="1" max="100" required>
+        </div>
+
+        <button type="submit">Сохранить настройки</button>
+    </form>
+
+    <hr>
+
+    <h2>Управление ротацией</h2>
+    <div class="status-box">
+        <p><strong>Следующая автоматическая ротация:</strong> <span id="next-run">{{ next_run }}</span></p>
+        <p><strong>Текущие товары в акции:</strong></p>
+        <ul>
+            {% for pid in active_products %}
+                <li>ID: {{ pid }}</li>
+            {% else %}
+                <li>Нет данных о товарах в акции.</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <button type="button" class="btn-rotate" id="force-rotate-btn">Поменять товары раньше срока</button>
+</div>
+
+<script>
+    document.getElementById('load-actions-btn').addEventListener('click', async function() {
+        const clientId = document.getElementById('client_id').value;
+        const apiKey = document.getElementById('api_key').value;
+
+        if (!clientId || !apiKey) {
+            showAlert('Введите Client-Id и Api-Key', 'danger');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/actions?client_id=${clientId}&api_key=${apiKey}`);
+            const data = await response.json();
+
+            if (response.ok) {
+                const select = document.getElementById('action_select');
+                select.innerHTML = '<option value="">-- Выберите акцию --</option>';
+                data.forEach(action => {
+                    select.innerHTML += `<option value="${action.id}">${action.title} (ID: ${action.id})</option>`;
+                });
+                select.style.display = 'block';
+                showAlert('Акции успешно загружены', 'success');
+
+                select.addEventListener('change', function() {
+                    document.getElementById('action_id').value = this.value;
+                });
+            } else {
+                showAlert('Ошибка: ' + (data.error || 'Неизвестная ошибка'), 'danger');
+            }
+        } catch (e) {
+            showAlert('Ошибка сети', 'danger');
+        }
+    });
+
+    document.getElementById('force-rotate-btn').addEventListener('click', async function() {
+        if(!confirm('Вы уверены, что хотите выполнить ротацию прямо сейчас? Это изменит таймер следующего запуска.')) return;
+
+        this.disabled = true;
+        this.innerText = 'Обработка...';
+
+        try {
+            const response = await fetch('/rotate', { method: 'POST' });
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                showAlert('Ротация успешно выполнена! Страница будет перезагружена...', 'success');
+                setTimeout(() => window.location.reload(), 2000);
+            } else {
+                showAlert('Ошибка: ' + (data.error || 'Неизвестная ошибка'), 'danger');
+                this.disabled = false;
+                this.innerText = 'Поменять товары раньше срока';
+            }
+        } catch (e) {
+            showAlert('Ошибка сети', 'danger');
+            this.disabled = false;
+            this.innerText = 'Поменять товары раньше срока';
+        }
+    });
+
+    function showAlert(msg, type) {
+        const box = document.getElementById('alert-box');
+        box.innerText = msg;
+        box.className = `alert alert-${type}`;
+        box.style.display = 'block';
+        setTimeout(() => box.style.display = 'none', 5000);
+    }
+</script>
+
+</body>
+</html>
