@@ -18,7 +18,7 @@ def _get_headers(client_id: str, api_key: str) -> Dict[str, str]:
     }
 
 
-def _make_request_with_backoff(method: str, url: str, headers: Dict[str, str], json_data: Optional[Dict] = None, max_retries: int = 5) -> requests.Response:
+def _make_request_with_backoff(method: str, url: str, headers: Dict[str, str], json_data: Optional[Dict] = None, max_retries: int = 5, raise_errors: bool = True) -> requests.Response:
     """Makes an HTTP request and handles 429 Too Many Requests using exponential backoff."""
     delay = 1
     for attempt in range(max_retries):
@@ -34,7 +34,8 @@ def _make_request_with_backoff(method: str, url: str, headers: Dict[str, str], j
                 delay *= 2
                 continue
 
-            response.raise_for_status()
+            if raise_errors:
+                response.raise_for_status()
             return response
 
         except requests.exceptions.RequestException as e:
@@ -58,12 +59,10 @@ def fetch_analytics_data(client_id: str, api_key: str, date_from: str, date_to: 
     url = f"{BASE_URL}/v1/analytics/data"
 
     # Ozon Analytics API requires metrics to be specified.
-    # 'session_view_search', 'session_view_pdp', 'session_view' are common for views.
-    # 'to_cart' is for add-to-cart events.
     payload = {
-        "date_from": date_from,
-        "date_to": date_to,
-        "metrics": ["session_view", "to_cart"],
+        "date_from": str(date_from),
+        "date_to": str(date_to),
+        "metrics": ["hits_view", "to_cart"],
         "dimension": ["sku"],
         "limit": 1000,
         "offset": 0
@@ -72,15 +71,39 @@ def fetch_analytics_data(client_id: str, api_key: str, date_from: str, date_to: 
     all_data = []
 
     while True:
-        response = _make_request_with_backoff('POST', url, _get_headers(client_id, api_key), payload)
-        data = response.json().get('result', {})
-        items = data.get('data', [])
-        all_data.extend(items)
+        response = None
+        try:
+            response = _make_request_with_backoff('POST', url, _get_headers(client_id, api_key), payload, raise_errors=False)
+            # Log specific errors or bad request formats
+            if response.status_code >= 400:
+                logger.error(f"Analytics API Error {response.status_code}: {response.text}")
+                # We can't proceed if it's a 4xx/5xx so break
+                break
 
-        if len(items) < payload['limit']:
-            break
+            data = response.json()
+            result_block = data.get('result', {})
 
-        payload['offset'] += payload['limit']
+            # Sometimes Ozon returns an empty list instead of a dict for 'result' if there's no data
+            if isinstance(result_block, list):
+                items = result_block
+            else:
+                items = result_block.get('data', [])
+
+            all_data.extend(items)
+
+            if len(items) < payload['limit']:
+                break
+
+            payload['offset'] += payload['limit']
+
+        except Exception as e:
+            logger.error(f"Failed to fetch or parse analytics data: {e}")
+            try:
+                # Attempt to log the raw payload if it was a JSON decode error
+                logger.error(f"Raw Response: {response.text}")
+            except Exception:
+                pass
+            break # Exit the loop on failure, return whatever we have so far
 
     return all_data
 
@@ -237,9 +260,20 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
             if len(dimensions) > 0 and len(metrics) >= 2:
                 sku_val = dimensions[0].get('id')
                 if sku_val:
-                    # Depending on API response, it might be just simple float/int arrays
-                    views = float(metrics[0]) if len(metrics) > 0 else 0
-                    to_cart = float(metrics[1]) if len(metrics) > 1 else 0
+                    # Safe parsing to handle 'None' or empty strings to prevent ValueError
+                    raw_views = metrics[0]
+                    raw_to_cart = metrics[1]
+
+                    try:
+                        views = float(raw_views) if raw_views not in (None, '', 'None') else 0.0
+                    except ValueError:
+                        views = 0.0
+
+                    try:
+                        to_cart = float(raw_to_cart) if raw_to_cart not in (None, '', 'None') else 0.0
+                    except ValueError:
+                        to_cart = 0.0
+
                     sku_metrics[str(sku_val)] = {"views": int(views), "to_cart": int(to_cart)}
 
         # Get action candidates to see what's eligible and what's already in promo
