@@ -254,29 +254,33 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
         # Map analytics by SKU
         sku_metrics = {}
         for row in analytics:
-            # Result row format depends on Ozon API, typically dimensions are list of values matching 'dimension' in request.
-            # metrics are list of values matching 'metrics'.
-            dimensions = row.get('dimensions', [])
-            metrics = row.get('metrics', [])
+            try:
+                # Result row format depends on Ozon API, typically dimensions are list of values matching 'dimension' in request.
+                # metrics are list of values matching 'metrics'.
+                dimensions = row.get('dimensions', [])
+                metrics = row.get('metrics', [])
 
-            if len(dimensions) > 0 and len(metrics) >= 2:
-                sku_val = dimensions[0].get('id')
-                if sku_val:
-                    # Safe parsing to handle 'None' or empty strings to prevent ValueError
-                    raw_views = metrics[0]
-                    raw_to_cart = metrics[1]
+                if len(dimensions) > 0 and len(metrics) >= 2:
+                    sku_val = dimensions[0].get('id')
+                    if sku_val:
+                        # Strictly enforce safe parsing without assuming valid numbers
+                        raw_views = metrics[0]
+                        raw_to_cart = metrics[1]
 
-                    try:
-                        views = float(raw_views) if raw_views not in (None, '', 'None') else 0.0
-                    except ValueError:
-                        views = 0.0
+                        try:
+                            views = int(float(raw_views)) if raw_views not in (None, 'None', '') else 0
+                        except ValueError:
+                            views = 0
 
-                    try:
-                        to_cart = float(raw_to_cart) if raw_to_cart not in (None, '', 'None') else 0.0
-                    except ValueError:
-                        to_cart = 0.0
+                        try:
+                            to_cart = int(float(raw_to_cart)) if raw_to_cart not in (None, 'None', '') else 0
+                        except ValueError:
+                            to_cart = 0
 
-                    sku_metrics[str(sku_val)] = {"views": int(views), "to_cart": int(to_cart)}
+                        sku_metrics[str(sku_val)] = {"views": views, "to_cart": to_cart}
+            except Exception as e:
+                logger.warning(f"Skipping SKU metric parse due to error: {e}. Raw row: {row}")
+                continue
 
         # Get action candidates to see what's eligible and what's already in promo
         # offset logic omitted for brevity, assuming limit=1000 is enough for test
