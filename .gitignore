@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+promo_state.json
+config.json
+promo_rotation_status.json
+app_output.log
+test_rotation.py
