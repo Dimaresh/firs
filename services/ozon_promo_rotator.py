@@ -247,9 +247,15 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
     import datetime
     from ozon_api import get_action_candidates, add_products_to_action, remove_products_from_action
 
-    logger.info("Starting promo rotation job...")
-
     status = load_rotation_status()
+
+    if not action_id:
+        logger.error("ERROR: TARGET_ACTION_ID is missing in environment variables")
+        status["alerts"] = ["TARGET_ACTION_ID is missing or None. Cannot perform rotation."]
+        save_rotation_status(status)
+        return {"error": "Missing action_id", "status": "failed"}
+
+    logger.info("Starting promo rotation job...")
     alerts = []
     total_processed = 0
     total_added = 0
