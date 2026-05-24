@@ -158,7 +158,7 @@ def answer_question(client_id, api_key, question_id, text):
     return response.json()
 
 def get_product_list(client_id, api_key, limit=1000):
-    url = f"{BASE_URL}/v2/product/list"
+    url = f"{BASE_URL}/v3/product/list"
     payload = {
         "filter": {"visibility": "ALL"},
         "limit": limit,
