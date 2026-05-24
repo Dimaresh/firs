@@ -62,7 +62,7 @@ def fetch_analytics_data(client_id: str, api_key: str, date_from: str, date_to: 
     payload = {
         "date_from": str(date_from),
         "date_to": str(date_to),
-        "metrics": ["hits_view", "to_cart"],
+        "metrics": ["session_view_pdp", "ordered_units"],
         "dimension": ["sku"],
         "limit": 1000,
         "offset": 0
@@ -74,13 +74,15 @@ def fetch_analytics_data(client_id: str, api_key: str, date_from: str, date_to: 
         response = None
         try:
             response = _make_request_with_backoff('POST', url, _get_headers(client_id, api_key), payload, raise_errors=False)
-            # Log specific errors or bad request formats
-            if response.status_code >= 400:
-                logger.error(f"Analytics API Error {response.status_code}: {response.text}")
-                # We can't proceed if it's a 4xx/5xx so break
-                break
+
+            # Explicit strict check per user request
+            if response.status_code != 200:
+                logger.error(f"API Error: {response.text}")
+                return []
 
             data = response.json()
+            if data is None:
+                return []
             result_block = data.get('result', {})
 
             # Sometimes Ozon returns an empty list instead of a dict for 'result' if there's no data
