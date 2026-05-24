@@ -70,7 +70,10 @@ def update_margin():
         return jsonify({'error': 'Invalid payload'}), 400
 
     sku = str(data['sku'])
-    margin = float(data['margin'])
+    try:
+        margin = float(data['margin'])
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Margin must be a valid number'}), 400
 
     margins = load_sku_margins()
     margins[sku] = margin

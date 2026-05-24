@@ -22,8 +22,12 @@ def get_actions(client_id, api_key):
 
 def get_action_candidates(client_id, api_key, action_id, limit=100, offset=0):
     url = f"{BASE_URL}/v1/actions/candidates"
+    try:
+        aid = int(action_id)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid action_id: {action_id}")
     payload = {
-        "action_id": int(action_id),
+        "action_id": aid,
         "limit": limit,
         "offset": offset
     }
@@ -33,8 +37,12 @@ def get_action_candidates(client_id, api_key, action_id, limit=100, offset=0):
 
 def add_products_to_action(client_id, api_key, action_id, products):
     url = f"{BASE_URL}/v1/actions/products/activate"
+    try:
+        aid = int(action_id)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid action_id: {action_id}")
     payload = {
-        "action_id": int(action_id),
+        "action_id": aid,
         "products": products
     }
     response = requests.post(url, headers=get_headers(client_id, api_key), json=payload)
@@ -43,8 +51,12 @@ def add_products_to_action(client_id, api_key, action_id, products):
 
 def remove_products_from_action(client_id, api_key, action_id, product_ids):
     url = f"{BASE_URL}/v1/actions/products/deactivate"
+    try:
+        aid = int(action_id)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid action_id: {action_id}")
     payload = {
-        "action_id": int(action_id),
+        "action_id": aid,
         "product_ids": product_ids
     }
     response = requests.post(url, headers=get_headers(client_id, api_key), json=payload)
@@ -121,8 +133,12 @@ def get_questions(client_id, api_key):
 def answer_question(client_id, api_key, question_id, text):
     """Submits an answer to a question."""
     url = f"{BASE_URL}/v1/question/answer/create"
+    try:
+        qid = int(question_id)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid question_id: {question_id}")
     payload = {
-        "question_id": int(question_id),
+        "question_id": qid,
         "text": text
     }
     response = requests.post(url, headers=get_headers(client_id, api_key), json=payload)

@@ -10,6 +10,26 @@ logger = logging.getLogger(__name__)
 BASE_URL = 'https://api-seller.ozon.ru'
 
 
+def safe_float(val: Any, default: float = 0.0) -> float:
+    """Safely cast any value to a float, returning default if None, empty, or invalid."""
+    if val in (None, '', 'None', 'null'):
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+def safe_int(val: Any, default: int = 0) -> int:
+    """Safely cast any value to an int, returning default if None, empty, or invalid."""
+    if val in (None, '', 'None', 'null'):
+        return default
+    try:
+        # Cast to float first to handle string decimals like '10.0'
+        return int(float(val))
+    except (ValueError, TypeError):
+        return default
+
+
 def _get_headers(client_id: str, api_key: str) -> Dict[str, str]:
     return {
         'Client-Id': client_id,
@@ -99,7 +119,7 @@ def fetch_analytics_data(client_id: str, api_key: str, date_from: str, date_to: 
             payload['offset'] += payload['limit']
 
         except Exception as e:
-            logger.error(f"Failed to fetch or parse analytics data: {e}")
+            logger.error(f"Failed to fetch or parse analytics data: {e}", exc_info=True)
             try:
                 # Attempt to log the raw payload if it was a JSON decode error
                 logger.error(f"Raw Response: {response.text}")
@@ -203,7 +223,7 @@ def load_rotation_status() -> Dict[str, Any]:
             with open(PROMO_STATUS_FILE, 'r') as f:
                 return json.load(f)
         except Exception as e:
-            logger.error(f"Error loading status file: {e}")
+            logger.error(f"Error loading status file: {e}", exc_info=True)
     return {
         "last_execution_timestamp": None,
         "total_processed_skus": 0,
@@ -217,7 +237,7 @@ def save_rotation_status(status: Dict[str, Any]):
         with open(PROMO_STATUS_FILE, 'w') as f:
             json.dump(status, f)
     except Exception as e:
-        logger.error(f"Error saving status file: {e}")
+        logger.error(f"Error saving status file: {e}", exc_info=True)
 
 def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: Optional[Dict] = None) -> Dict[str, Any]:
     """
@@ -247,7 +267,7 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
             analytics = fetch_analytics_data(client_id, api_key, date_from, date_to)
         except Exception as e:
             msg = f"Failed to fetch analytics: {e}"
-            logger.error(msg)
+            logger.error(msg, exc_info=True)
             alerts.append(msg)
             analytics = []
 
@@ -267,19 +287,12 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
                         raw_views = metrics[0]
                         raw_to_cart = metrics[1]
 
-                        try:
-                            views = int(float(raw_views)) if raw_views not in (None, 'None', '') else 0
-                        except ValueError:
-                            views = 0
-
-                        try:
-                            to_cart = int(float(raw_to_cart)) if raw_to_cart not in (None, 'None', '') else 0
-                        except ValueError:
-                            to_cart = 0
+                        views = safe_int(raw_views, 0)
+                        to_cart = safe_int(raw_to_cart, 0)
 
                         sku_metrics[str(sku_val)] = {"views": views, "to_cart": to_cart}
             except Exception as e:
-                logger.warning(f"Skipping SKU metric parse due to error: {e}. Raw row: {row}")
+                logger.warning(f"Skipping SKU metric parse due to error: {e}. Raw row: {row}", exc_info=True)
                 continue
 
         # Get action candidates to see what's eligible and what's already in promo
@@ -294,7 +307,7 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
             sku = str(candidate.get('id', ''))
 
             # For this MVP without a real DB, we use mock values or defaults
-            current_price = candidate.get('price', 1000.0) # default fallback
+            current_price = safe_float(candidate.get('price'), 1000.0) # default fallback
             is_in_promo = candidate.get('is_participating', False)
 
             # Default mock parameters for the assignment
@@ -305,11 +318,11 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
 
             if mock_data and sku in mock_data:
                 md = mock_data[sku]
-                current_price = md.get('price', current_price)
-                commission_percent = md.get('commission', commission_percent)
-                logistics_fee = md.get('logistics', logistics_fee)
-                action_discount_percent = md.get('discount', action_discount_percent)
-                min_target_margin = md.get('target_margin', min_target_margin)
+                current_price = safe_float(md.get('price'), current_price)
+                commission_percent = safe_float(md.get('commission'), commission_percent)
+                logistics_fee = safe_float(md.get('logistics'), logistics_fee)
+                action_discount_percent = safe_float(md.get('discount'), action_discount_percent)
+                min_target_margin = safe_float(md.get('target_margin'), min_target_margin)
 
             metrics = sku_metrics.get(sku, {"views": 0, "to_cart": 0})
 
@@ -318,7 +331,7 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
                 with open('sku_margins.json', 'r') as mf:
                     saved_margins = json.load(mf)
                     if sku in saved_margins:
-                        min_target_margin = saved_margins[sku]
+                        min_target_margin = safe_float(saved_margins[sku], min_target_margin)
             except:
                 pass
 
@@ -372,7 +385,7 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
                 total_added += len(products_to_add)
             except Exception as e:
                 msg = f"Failed to add products: {e}"
-                logger.error(msg)
+                logger.error(msg, exc_info=True)
                 alerts.append(msg)
 
         if products_to_remove:
@@ -381,12 +394,12 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
                 total_removed += len(products_to_remove)
             except Exception as e:
                 msg = f"Failed to remove products: {e}"
-                logger.error(msg)
+                logger.error(msg, exc_info=True)
                 alerts.append(msg)
 
     except Exception as e:
         msg = f"Unexpected error during rotation: {e}"
-        logger.error(msg)
+        logger.error(msg, exc_info=True)
         alerts.append(msg)
 
     status["last_execution_timestamp"] = datetime.datetime.now().isoformat()
