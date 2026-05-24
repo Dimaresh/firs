@@ -239,24 +239,32 @@ def save_rotation_status(status: Dict[str, Any]):
     except Exception as e:
         logger.error(f"Error saving status file: {e}", exc_info=True)
 
-def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: Optional[Dict] = None) -> Dict[str, Any]:
+def run_promo_rotation(client_id: str, api_key: str, action_id: str = None, mock_data: Optional[Dict] = None) -> Dict[str, Any]:
     """
     Main rotation runner.
     mock_data can be injected for testing since we don't have a real DB with costs.
     """
     import datetime
-    from ozon_api import get_action_candidates, add_products_to_action, remove_products_from_action
+    from ozon_api import get_action_candidates, add_products_to_action, remove_products_from_action, get_actions
 
     status = load_rotation_status()
+    alerts = []
 
-    if not action_id:
-        logger.error("ERROR: TARGET_ACTION_ID is missing in environment variables")
-        status["alerts"] = ["TARGET_ACTION_ID is missing or None. Cannot perform rotation."]
+    try:
+        active_actions = get_actions(client_id, api_key)
+    except Exception as e:
+        msg = f"Failed to fetch active actions: {e}"
+        logger.error(msg, exc_info=True)
+        alerts.append(msg)
+        active_actions = []
+
+    if not active_actions:
+        logger.info("No active promotions found for this seller.")
+        status["alerts"] = alerts
         save_rotation_status(status)
-        return {"error": "Missing action_id", "status": "failed"}
+        return {"status": "success", "message": "No active promotions found."}
 
     logger.info("Starting promo rotation job...")
-    alerts = []
     total_processed = 0
     total_added = 0
     total_removed = 0
@@ -301,107 +309,112 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
                 logger.warning(f"Skipping SKU metric parse due to error: {e}. Raw row: {row}", exc_info=True)
                 continue
 
-        # Get action candidates to see what's eligible and what's already in promo
-        # offset logic omitted for brevity, assuming limit=1000 is enough for test
-        candidates = get_action_candidates(client_id, api_key, action_id, limit=1000)
+        for action_item in active_actions:
+            current_action_id = str(action_item.get('id'))
+            if not current_action_id or current_action_id == 'None':
+                continue
 
-        products_to_add = []
-        products_to_remove = []
+            # Get action candidates to see what's eligible and what's already in promo
+            # offset logic omitted for brevity, assuming limit=1000 is enough for test
+            candidates = get_action_candidates(client_id, api_key, current_action_id, limit=1000)
 
-        for candidate in candidates:
-            total_processed += 1
-            sku = str(candidate.get('id', ''))
+            products_to_add = []
+            products_to_remove = []
 
-            # For this MVP without a real DB, we use mock values or defaults
-            current_price = safe_float(candidate.get('price'), 1000.0) # default fallback
-            is_in_promo = candidate.get('is_participating', False)
+            for candidate in candidates:
+                total_processed += 1
+                sku = str(candidate.get('id', ''))
 
-            # Default mock parameters for the assignment
-            commission_percent = 15.0
-            logistics_fee = 50.0
-            action_discount_percent = 5.0
-            min_target_margin = 10.0
+                # For this MVP without a real DB, we use mock values or defaults
+                current_price = safe_float(candidate.get('price'), 1000.0) # default fallback
+                is_in_promo = candidate.get('is_participating', False)
 
-            if mock_data and sku in mock_data:
-                md = mock_data[sku]
-                current_price = safe_float(md.get('price'), current_price)
-                commission_percent = safe_float(md.get('commission'), commission_percent)
-                logistics_fee = safe_float(md.get('logistics'), logistics_fee)
-                action_discount_percent = safe_float(md.get('discount'), action_discount_percent)
-                min_target_margin = safe_float(md.get('target_margin'), min_target_margin)
+                # Default mock parameters for the assignment
+                commission_percent = 15.0
+                logistics_fee = 50.0
+                action_discount_percent = 5.0
+                min_target_margin = 10.0
 
-            metrics = sku_metrics.get(sku, {"views": 0, "to_cart": 0})
+                if mock_data and sku in mock_data:
+                    md = mock_data[sku]
+                    current_price = safe_float(md.get('price'), current_price)
+                    commission_percent = safe_float(md.get('commission'), commission_percent)
+                    logistics_fee = safe_float(md.get('logistics'), logistics_fee)
+                    action_discount_percent = safe_float(md.get('discount'), action_discount_percent)
+                    min_target_margin = safe_float(md.get('target_margin'), min_target_margin)
 
-            # Load custom margins if saved via UI
-            try:
-                with open('sku_margins.json', 'r') as mf:
-                    saved_margins = json.load(mf)
-                    if sku in saved_margins:
-                        min_target_margin = safe_float(saved_margins[sku], min_target_margin)
-            except:
-                pass
+                metrics = sku_metrics.get(sku, {"views": 0, "to_cart": 0})
 
-            decision = evaluate_sku_for_promotion(
-                sku=sku,
-                views=metrics['views'],
-                adds_to_cart=metrics['to_cart'],
-                current_price=current_price,
-                commission_percent=commission_percent,
-                logistics_fee=logistics_fee,
-                action_discount_percent=action_discount_percent,
-                min_target_margin=min_target_margin,
-                is_currently_in_promo=is_in_promo
-            )
+                # Load custom margins if saved via UI
+                try:
+                    with open('sku_margins.json', 'r') as mf:
+                        saved_margins = json.load(mf)
+                        if sku in saved_margins:
+                            min_target_margin = safe_float(saved_margins[sku], min_target_margin)
+                except:
+                    pass
 
-            if not hasattr(logger, "run_logs"):
-                logger.run_logs = []
-            if not hasattr(logger, "sku_metrics"):
-                logger.sku_metrics = {}
+                decision = evaluate_sku_for_promotion(
+                    sku=sku,
+                    views=metrics['views'],
+                    adds_to_cart=metrics['to_cart'],
+                    current_price=current_price,
+                    commission_percent=commission_percent,
+                    logistics_fee=logistics_fee,
+                    action_discount_percent=action_discount_percent,
+                    min_target_margin=min_target_margin,
+                    is_currently_in_promo=is_in_promo
+                )
 
-            timestamp_str = datetime.datetime.now().isoformat()
-            logger.info(f"[{timestamp_str}] SKU: {sku} | Action: {decision['action']} | Reason: {decision['reason']}")
-            logger.run_logs.insert(0, {
-                "timestamp": timestamp_str.split('.')[0].replace('T', ' '),
-                "sku": sku,
-                "event": decision['action'],
-                "reason": decision['reason']
-            })
+                if not hasattr(logger, "run_logs"):
+                    logger.run_logs = []
+                if not hasattr(logger, "sku_metrics"):
+                    logger.sku_metrics = {}
 
-            # Keep top 50
-            logger.run_logs = logger.run_logs[:50]
-
-            logger.sku_metrics[sku] = {
-                "sku": sku,
-                "cr": decision['cr'],
-                "margin": min_target_margin
-            }
-
-            if decision['action'] == 'JOIN':
-                products_to_add.append({
-                    "action_price": current_price * (1 - (action_discount_percent/100)),
-                    "product_id": candidate['id']
+                timestamp_str = datetime.datetime.now().isoformat()
+                logger.info(f"[{timestamp_str}] Action: {current_action_id} | SKU: {sku} | Action: {decision['action']} | Reason: {decision['reason']}")
+                logger.run_logs.insert(0, {
+                    "timestamp": timestamp_str.split('.')[0].replace('T', ' '),
+                    "sku": sku,
+                    "event": decision['action'],
+                    "reason": decision['reason']
                 })
-            elif decision['action'] == 'LEAVE':
-                products_to_remove.append(candidate['id'])
 
-        # Execute actions
-        if products_to_add:
-            try:
-                add_products_to_action(client_id, api_key, action_id, products_to_add)
-                total_added += len(products_to_add)
-            except Exception as e:
-                msg = f"Failed to add products: {e}"
-                logger.error(msg, exc_info=True)
-                alerts.append(msg)
+                # Keep top 50
+                logger.run_logs = logger.run_logs[:50]
 
-        if products_to_remove:
-            try:
-                remove_products_from_action(client_id, api_key, action_id, products_to_remove)
-                total_removed += len(products_to_remove)
-            except Exception as e:
-                msg = f"Failed to remove products: {e}"
-                logger.error(msg, exc_info=True)
-                alerts.append(msg)
+                logger.sku_metrics[sku] = {
+                    "sku": sku,
+                    "cr": decision['cr'],
+                    "margin": min_target_margin
+                }
+
+                if decision['action'] == 'JOIN':
+                    products_to_add.append({
+                        "action_price": current_price * (1 - (action_discount_percent/100)),
+                        "product_id": candidate['id']
+                    })
+                elif decision['action'] == 'LEAVE':
+                    products_to_remove.append(candidate['id'])
+
+            # Execute actions
+            if products_to_add:
+                try:
+                    add_products_to_action(client_id, api_key, current_action_id, products_to_add)
+                    total_added += len(products_to_add)
+                except Exception as e:
+                    msg = f"Failed to add products for action {current_action_id}: {e}"
+                    logger.error(msg, exc_info=True)
+                    alerts.append(msg)
+
+            if products_to_remove:
+                try:
+                    remove_products_from_action(client_id, api_key, current_action_id, products_to_remove)
+                    total_removed += len(products_to_remove)
+                except Exception as e:
+                    msg = f"Failed to remove products for action {current_action_id}: {e}"
+                    logger.error(msg, exc_info=True)
+                    alerts.append(msg)
 
     except Exception as e:
         msg = f"Unexpected error during rotation: {e}"

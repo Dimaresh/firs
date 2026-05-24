@@ -41,17 +41,17 @@ def background_rotation():
     config = load_config()
     client_id = os.environ.get('OZON_CLIENT_ID') or config.get("client_id")
     api_key = os.environ.get('OZON_API_KEY') or config.get("api_key")
-    action_id = config.get("action_id")
 
-    if client_id and api_key and action_id:
+    if client_id and api_key:
         try:
             logger.info("Running scheduled promo rotation...")
-            run_promo_rotation(client_id, api_key, action_id)
+            # Automatically fetch and rotate all active actions
+            run_promo_rotation(client_id, api_key)
             logger.info("Scheduled promo rotation completed.")
         except Exception as e:
             logger.error(f"Error in background rotation: {e}")
     else:
-        logger.warning("Missing Ozon credentials or action_id for background rotation.")
+        logger.warning("Missing Ozon credentials for background rotation.")
 
 # Initialize scheduler
 scheduler = BackgroundScheduler()

@@ -21,14 +21,15 @@ def get_actions(client_id, api_key):
     return response.json().get('result', [])
 
 def get_action_candidates(client_id, api_key, action_id, limit=100, offset=0):
-    if action_id is None:
+    if not action_id:
         return []
 
     url = f"{BASE_URL}/v1/actions/candidates"
     try:
         aid = int(action_id)
     except (ValueError, TypeError):
-        raise ValueError(f"Invalid action_id: {action_id}")
+        return []
+
     payload = {
         "action_id": aid,
         "limit": limit,
@@ -39,14 +40,15 @@ def get_action_candidates(client_id, api_key, action_id, limit=100, offset=0):
     return response.json().get('result', {}).get('products', [])
 
 def add_products_to_action(client_id, api_key, action_id, products):
-    if action_id is None:
-        raise ValueError("action_id cannot be None")
+    if not action_id:
+        return {}
 
     url = f"{BASE_URL}/v1/actions/products/activate"
     try:
         aid = int(action_id)
     except (ValueError, TypeError):
-        raise ValueError(f"Invalid action_id: {action_id}")
+        return {}
+
     payload = {
         "action_id": aid,
         "products": products
@@ -56,14 +58,15 @@ def add_products_to_action(client_id, api_key, action_id, products):
     return response.json()
 
 def remove_products_from_action(client_id, api_key, action_id, product_ids):
-    if action_id is None:
-        raise ValueError("action_id cannot be None")
+    if not action_id:
+        return {}
 
     url = f"{BASE_URL}/v1/actions/products/deactivate"
     try:
         aid = int(action_id)
     except (ValueError, TypeError):
-        raise ValueError(f"Invalid action_id: {action_id}")
+        return {}
+
     payload = {
         "action_id": aid,
         "product_ids": product_ids
