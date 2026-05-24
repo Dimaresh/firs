@@ -8,6 +8,7 @@ import llm_helper
 import logging
 
 from routes.promo_rotation import promo_rotation_bp
+from routes.web_ui import web_ui_bp
 from services.ozon_promo_rotator import run_promo_rotation
 
 logging.basicConfig(level=logging.INFO)
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.register_blueprint(promo_rotation_bp)
+app.register_blueprint(web_ui_bp)
 
 CONFIG_FILE = 'config.json'
 STATE_FILE = 'promo_state.json'
@@ -60,28 +62,7 @@ scheduler.start()
 # Shut down the scheduler when exiting the app
 atexit.register(lambda: scheduler.shutdown())
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    config = load_config()
-    state = load_state()
-
-    if request.method == 'POST':
-        config['client_id'] = request.form.get('client_id')
-        config['api_key'] = request.form.get('api_key')
-        config['action_id'] = request.form.get('action_id')
-        config['count'] = int(request.form.get('count', 5))
-        config['openai_api_key'] = request.form.get('openai_api_key', '')
-        save_config(config)
-        return redirect(url_for('index'))
-
-    action_id = config.get('action_id')
-    active_products = state.get(str(action_id), []) if action_id else []
-
-    # Get next run time
-    job = scheduler.get_job('rotation_job')
-    next_run = job.next_run_time.strftime('%Y-%m-%d %H:%M:%S') if job and job.next_run_time else "Not scheduled"
-
-    return render_template('index.html', config=config, active_products=active_products, next_run=next_run)
+# Removed legacy root and actions endpoints that were clashing with the new UI
 
 @app.route('/actions', methods=['GET'])
 def get_actions():

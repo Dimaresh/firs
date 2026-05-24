@@ -273,6 +273,15 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
 
             metrics = sku_metrics.get(sku, {"views": 0, "to_cart": 0})
 
+            # Load custom margins if saved via UI
+            try:
+                with open('sku_margins.json', 'r') as mf:
+                    saved_margins = json.load(mf)
+                    if sku in saved_margins:
+                        min_target_margin = saved_margins[sku]
+            except:
+                pass
+
             decision = evaluate_sku_for_promotion(
                 sku=sku,
                 views=metrics['views'],
@@ -285,7 +294,28 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
                 is_currently_in_promo=is_in_promo
             )
 
-            logger.info(f"[{datetime.datetime.now().isoformat()}] SKU: {sku} | Action: {decision['action']} | Reason: {decision['reason']}")
+            if not hasattr(logger, "run_logs"):
+                logger.run_logs = []
+            if not hasattr(logger, "sku_metrics"):
+                logger.sku_metrics = {}
+
+            timestamp_str = datetime.datetime.now().isoformat()
+            logger.info(f"[{timestamp_str}] SKU: {sku} | Action: {decision['action']} | Reason: {decision['reason']}")
+            logger.run_logs.insert(0, {
+                "timestamp": timestamp_str.split('.')[0].replace('T', ' '),
+                "sku": sku,
+                "event": decision['action'],
+                "reason": decision['reason']
+            })
+
+            # Keep top 50
+            logger.run_logs = logger.run_logs[:50]
+
+            logger.sku_metrics[sku] = {
+                "sku": sku,
+                "cr": decision['cr'],
+                "margin": min_target_margin
+            }
 
             if decision['action'] == 'JOIN':
                 products_to_add.append({
@@ -324,6 +354,8 @@ def run_promo_rotation(client_id: str, api_key: str, action_id: str, mock_data: 
     status["total_added"] = total_added
     status["total_removed"] = total_removed
     status["alerts"] = alerts
+    status["last_logs"] = getattr(logger, "run_logs", [])
+    status["sku_metrics"] = list(getattr(logger, "sku_metrics", {}).values())
 
     save_rotation_status(status)
     logger.info("Promo rotation job completed.")
