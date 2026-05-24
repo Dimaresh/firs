@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}Margin Checker | Ozon Promo Rotator{% endblock %}
+
+{% block content %}
+<div class="mb-8 flex justify-between items-center">
+    <div>
+        <h1 class="text-3xl font-bold text-gray-900">Margin Checker</h1>
+        <p class="mt-2 text-sm text-gray-500">Check profitability and update prices for your in-stock products.</p>
+    </div>
+</div>
+
+{% if error %}
+<div class="bg-red-50 border-l-4 border-red-400 p-4 mb-8">
+    <div class="flex">
+        <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+            </svg>
+        </div>
+        <div class="ml-3">
+            <p class="text-sm text-red-700">
+                {{ error }}
+            </p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="bg-white shadow overflow-hidden sm:rounded-lg">
+    <div class="border-t border-gray-200 overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Price</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Margin (%)</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Update Price</th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200" id="marginTableBody">
+                {% if products and products|length > 0 %}
+                    {% for item in products %}
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ item.sku }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.stock }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" id="price_{{ item.product_id }}">{{ item.price }} ₽</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {% if item.margin < 10 %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+                                {{ item.margin }}%
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <div class="flex space-x-2">
+                                <button onclick="updatePrice('{{ item.product_id }}', {{ item.price }}, 5)" class="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                    +5%
+                                </button>
+                                <button onclick="updatePrice('{{ item.product_id }}', {{ item.price }}, 10)" class="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                    +10%
+                                </button>
+                                <button onclick="updatePrice('{{ item.product_id }}', {{ item.price }}, 15)" class="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                    +15%
+                                </button>
+                                <button onclick="updatePrice('{{ item.product_id }}', {{ item.price }}, 20)" class="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                    +20%
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="5" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">No products found in stock.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    async function updatePrice(productId, currentPrice, increasePercent) {
+        const newPrice = Math.round(currentPrice * (1 + increasePercent / 100));
+
+        if (!confirm(`Are you sure you want to increase the price to ${newPrice} ₽ (+${increasePercent}%)?`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/margin/update_price', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ product_id: productId, new_price: newPrice })
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                showToast(`Price updated successfully to ${newPrice} ₽!`, 'success');
+                document.getElementById(`price_${productId}`).innerText = `${newPrice} ₽`;
+
+                // Note: margin percentage recalculation requires full reload for correct server logic
+                // Alternatively, we can visually update margin roughly, but reloading is safer
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                throw new Error(data.error || 'Failed to update price');
+            }
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    }
+</script>
+{% endblock %}

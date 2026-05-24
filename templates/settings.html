@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Settings | Ozon Promo Rotator{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h1 class="text-3xl font-bold text-gray-900">Margin Configuration</h1>
+    <p class="mt-2 text-sm text-gray-500">Manage minimum margin targets to protect your profitability during automated promotions.</p>
+</div>
+
+<div class="bg-white shadow overflow-hidden sm:rounded-lg">
+    <div class="border-t border-gray-200">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Conversion Rate (24h)</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Target Margin (%)</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200" id="settingsTableBody">
+                {% if skus and skus|length > 0 %}
+                    {% for item in skus %}
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ item.sku }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ "%.1f"|format(item.cr * 100) }}%</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <div class="flex rounded-md shadow-sm w-32">
+                                <input type="number" step="0.1" name="margin_{{ item.sku }}" id="margin_{{ item.sku }}" value="{{ item.margin }}" class="flex-1 min-w-0 block w-full px-3 py-2 rounded-md sm:text-sm border-gray-300 focus:ring-blue-500 focus:border-blue-500 border" placeholder="10.0">
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <button onclick="saveMargin('{{ item.sku }}')" class="text-blue-600 hover:text-blue-900 font-semibold">Save</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="4" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">No SKUs tracked yet. Run a sync first.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    async function saveMargin(sku) {
+        const input = document.getElementById(`margin_${sku}`);
+        const newValue = parseFloat(input.value);
+
+        if (isNaN(newValue)) {
+            showToast('Please enter a valid number', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch('/settings/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sku: sku, margin: newValue })
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                showToast(`Margin for ${sku} updated successfully!`, 'success');
+            } else {
+                throw new Error(data.error || 'Failed to update margin');
+            }
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    }
+</script>
+{% endblock %}
